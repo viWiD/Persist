@@ -1,0 +1,33 @@
+{
+  "name": "Persist",
+  "version": "0.1.0",
+  "summary": "Lightweight JSON object graph persistence to Core Data",
+  "description": "",
+  "homepage": "https://github.com/viWiD/Persist",
+  "license": "MIT",
+  "authors": {
+    "Nils Fischer": "n.fischer@viwid.com"
+  },
+  "source": {
+    "git": "https://github.com/viWiD/Persist.git",
+    "tag": "v0.1.0"
+  },
+  "platforms": {
+    "ios": "8.0"
+  },
+  "source_files": "Sources/Persist/**/*",
+  "dependencies": {
+    "Evergreen": [
+
+    ],
+    "Freddy": [
+
+    ],
+    "PromiseKit": [
+
+    ],
+    "Result": [
+
+    ]
+  }
+}
