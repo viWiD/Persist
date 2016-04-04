@@ -35,5 +35,4 @@ Pod::Spec.new do |s|
   s.dependency 'Evergreen'
   s.dependency 'Freddy'
   s.dependency 'PromiseKit'
-  s.dependency 'Result'
 end

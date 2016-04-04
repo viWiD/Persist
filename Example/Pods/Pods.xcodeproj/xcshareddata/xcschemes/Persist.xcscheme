@@ -14,7 +14,7 @@
             buildForArchiving = "YES">
             <BuildableReference
                BuildableIdentifier = 'primary'
-               BlueprintIdentifier = 'E8F8E0CD927FCF496B35F72E'
+               BlueprintIdentifier = 'DB548E29D2A8BC189A1232C4'
                BlueprintName = 'Persist'
                ReferencedContainer = 'container:Pods.xcodeproj'
                BuildableName = 'Persist.framework'>

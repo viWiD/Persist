@@ -91,7 +91,6 @@ if [[ "$CONFIGURATION" == "Debug" ]]; then
   install_framework "Pods-Persist_Tests/Persist.framework"
   install_framework "Pods-Persist_Tests/PromiseKit.framework"
   install_framework "Pods-Persist_Tests/Quick.framework"
-  install_framework "Pods-Persist_Tests/Result.framework"
 fi
 if [[ "$CONFIGURATION" == "Release" ]]; then
   install_framework "Pods-Persist_Tests/Evergreen.framework"
@@ -101,5 +100,4 @@ if [[ "$CONFIGURATION" == "Release" ]]; then
   install_framework "Pods-Persist_Tests/Persist.framework"
   install_framework "Pods-Persist_Tests/PromiseKit.framework"
   install_framework "Pods-Persist_Tests/Quick.framework"
-  install_framework "Pods-Persist_Tests/Result.framework"
 fi
