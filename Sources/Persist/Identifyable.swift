@@ -45,7 +45,7 @@ internal func stub(objectOfEntity entityType: Identifyable.Type, withIdentificat
                 let identificationPredicate = NSPredicate(format: "%K = %@", entityType.identificationAttributeName, primitiveIdentificationValue)
                 let objects: [NSManagedObject]
                 do {
-                    objects = try existingObjects(ofEntity: entityType, matching: identificationPredicate, context: context)
+                    objects = try existingObjects(ofEntity: entityType, includingSuperentitySharingIdentification: true, matching: identificationPredicate, context: context)
                 } catch {
                     reject(error)
                     return
@@ -55,7 +55,7 @@ internal func stub(objectOfEntity entityType: Identifyable.Type, withIdentificat
                             
                     // found existing object
                     if objects.count > 1 {
-                        logger.warning("Found multiple existing objects of entity \(entityType.entityName) with identification value \(identificationValue), choosing any: \(existingObjects)")
+                        logger.warning("Found multiple existing objects of entity \(entityType.entityName) with identification value \(identificationValue), choosing any: \(objects)")
                     }
                     var object = objects.first!
                     logger.verbose("Found existing object of entity \(entityType.entityName) for representation: \(object)")
@@ -94,7 +94,7 @@ private func createObject(ofEntity entityType: Identifyable.Type, withPrimitiveI
 }
 
 /// - warning: Only call on `context`'s queue using `performBlock`.
-private func existingObjects(ofEntity entityType: Identifyable.Type, matching predicate: NSPredicate, context: NSManagedObjectContext) throws -> [NSManagedObject] {
+private func existingObjects(ofEntity entityType: Identifyable.Type, includingSuperentitySharingIdentification: Bool, matching predicate: NSPredicate, context: NSManagedObjectContext) throws -> [NSManagedObject] {
     let logger = Evergreen.getLogger("Persist.Stub")
 
     guard let entity = NSEntityDescription.entityForName(entityType.entityName, inManagedObjectContext: context) else {
@@ -102,7 +102,7 @@ private func existingObjects(ofEntity entityType: Identifyable.Type, matching pr
     }
 
     let identificationEntity: Identifyable.Type
-    if let superentitySharingIdentification = entityType.superentitySharingIdentification {
+    if let superentitySharingIdentification = entityType.superentitySharingIdentification where includingSuperentitySharingIdentification {
         guard let superentity = NSEntityDescription.entityForName(superentitySharingIdentification.entityName, inManagedObjectContext: context) else {
             throw FillError.UnknownEntity(named: superentitySharingIdentification.entityName)
         }
@@ -174,7 +174,7 @@ private func ensureEntity(entityType: EntityRepresentable.Type, forObject object
 internal func deleteOrphans(ofEntity entityType: Persistable.Type, onlyKeeping objectsRepresentation: JSON, context: NSManagedObjectContext, scope: NSPredicate? = nil) -> Promise<Void> {
     let traceLogger = Evergreen.getLogger("Persist.Trace")
     traceLogger.verbose("Deleting orphans of \(entityType)...")
-    let logger = Evergreen.getLogger("Persist.Orphans")
+    let logger = Evergreen.getLogger("Persist.DeleteOrphans")
 
     // obtain identification values to keep
     return primitiveIdentificationValues(ofEntity: entityType, withRepresentation: objectsRepresentation, context: context).then { primitiveIdentificationValuesToKeep in
@@ -191,7 +191,7 @@ internal func deleteOrphans(ofEntity entityType: Persistable.Type, onlyKeeping o
                 }
                 let orphans: [NSManagedObject]
                 do {
-                    orphans = try existingObjects(ofEntity: entityType.self, matching: orphanPredicate, context: context)
+                    orphans = try existingObjects(ofEntity: entityType.self, includingSuperentitySharingIdentification: false, matching: orphanPredicate, context: context)
                 } catch {
                     reject(error)
                     return

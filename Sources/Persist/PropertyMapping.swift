@@ -12,11 +12,7 @@ public struct PropertyMapping: CustomDebugStringConvertible {
     
     let name: String
     let key: String
-    
-    init(key: String, name: String) {
-        self.name = name
-        self.key = key
-    }
+    let transformer: Transformer?
     
     public var debugDescription: String {
         return "\(name) <-> \(key)"
@@ -24,11 +20,11 @@ public struct PropertyMapping: CustomDebugStringConvertible {
     
 }
 
-public func map(propertyNamed propertyName: String, toKey key: String) -> PropertyMapping {
-    return PropertyMapping(key: key, name: propertyName)
+public func map(propertyNamed propertyName: String, toKey key: String, transformer: Transformer? = nil) -> PropertyMapping {
+    return PropertyMapping(name: propertyName, key: key, transformer: transformer)
 }
-public func map(key key: String, toPropertyNamed propertyName: String) -> PropertyMapping {
-    return PropertyMapping(key: key, name: propertyName)
+public func map(key key: String, toPropertyNamed propertyName: String, transformer: Transformer? = nil) -> PropertyMapping {
+    return PropertyMapping(name: propertyName, key: key, transformer: transformer)
 }
 
 // TODO: provide shortcut for snake_case mapping
@@ -36,15 +32,15 @@ public func map(key key: String, toPropertyNamed propertyName: String) -> Proper
 extension PropertyMapping: StringLiteralConvertible {
     
     public init(stringLiteral value: StringLiteralType) {
-        self.init(key: value, name: value)
+        self.init(name: value, key: value, transformer: nil)
     }
     public typealias ExtendedGraphemeClusterLiteralType = StringLiteralType
     public init(extendedGraphemeClusterLiteral value: ExtendedGraphemeClusterLiteralType) {
-        self.init(key: value, name: value)
+        self.init(name: value, key: value, transformer: nil)
     }
     public typealias UnicodeScalarLiteralType = StringLiteralType
     public init(unicodeScalarLiteral value: UnicodeScalarLiteralType) {
-        self.init(key: value, name: value)
+        self.init(name: value, key: value, transformer: nil)
     }
     
 }

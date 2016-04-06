@@ -11,117 +11,191 @@ import CoreData
 import Freddy
 
 
-internal extension JSON {
+public enum TransformationError: ErrorType, CustomDebugStringConvertible {
+    case NoTransformerFound(value: JSON, attributeType: NSAttributeType)
+    public var debugDescription: String {
+        switch self {
+        case .NoTransformerFound(value: let value, attributeType: let attributeType): return "No transformer found to transform \(value) to \(attributeType)."
+        }
+    }
+}
+
+
+extension JSON {
     
-    enum TransformationError: ErrorType {
-        case NotImplemented
+    internal func transformedTo(attributeType: NSAttributeType, transformer: Transformer? = nil) throws -> PrimitiveValue? {
+        
+        // use the given transformer, if available
+        if let transformer = transformer {
+            return transformer.transformedValue(self.primitiveValue) as? PrimitiveValue // TODO: reconsider this cast, make PrimitiveValue = AnyObject?
+        }
+        
+        // try to find a default transformer
+        if let transformer = self.defaultTransformerForAttributeType(attributeType) {
+            return transformer.transformedValue(self.primitiveValue) as? PrimitiveValue // TODO: reconsider this cast, make PrimitiveValue = AnyObject?
+        }
+        
+        if case .Null = self {
+            return nil // TODO: make sure to give appropriate error if the transformed value is nil but the attribute is non-optional
+        }
+        
+        throw TransformationError.NoTransformerFound(value: self, attributeType: attributeType)
     }
     
-    func transformedTo(attributeType: NSAttributeType) throws -> NSObject? { // TODO: return descriptive typealias instead of NSObject
+    // TODO: don't instantiate the transformers every time
+    private func defaultTransformerForAttributeType(attributeType: NSAttributeType) -> Transformer? {
         switch attributeType {
+        case .StringAttributeType:
+            switch self {
+            case .String: return IdentityTransformer()
+            case .Int, .Double, Bool:
+                let numberFormatter = NSNumberFormatter()
+                return NumberFormatTransformer(numberFormatter: numberFormatter)
+            default: return nil
+            }
         case .DateAttributeType:
             switch self {
-            case .String(let stringValue):
-                let transformer = ISO8601DateTransform() // TODO: fallback to others
-                return try transformer.transform(stringValue)
-            case .Null: return nil
-            default:
-                throw TransformationError.NotImplemented
+            case .String(let stringValue): return ISO8601DateTransform() // TODO: fallback to others
+            default: return nil
             }
         case .BooleanAttributeType:
             switch self {
-            case .Bool(let boolValue): return boolValue
-            case .Null: return nil
-            default:
-                throw TransformationError.NotImplemented
+            case .Bool: return IdentityTransformer()
+            case .Int(let integerValue): return [ 0, 1 ].contains(integerValue) ? IdentityTransformer() : nil
+            case .Double(let doubleValue): return [ 0, 1 ].contains(doubleValue) ? IdentityTransformer() : nil
+            // TODO: interpret strings
+            default: return nil
             }
-        case .StringAttributeType:
+        case .Integer16AttributeType, .Integer32AttributeType, .Integer64AttributeType, .FloatAttributeType, .DoubleAttributeType:
             switch self {
-            case .String(let stringValue): return stringValue
-            case .Null: return nil
-            default:
-                throw TransformationError.NotImplemented
+            case .Int, .Double, .Bool: return IdentityTransformer()
+            case .String:
+                let numberFormatter = NSNumberFormatter()
+                return FormattedNumberTransformer(numberFormatter: numberFormatter)
+            default: return nil
             }
-        case .Integer16AttributeType, .Integer32AttributeType, .Integer64AttributeType:
-            switch self {
-            case .Int(let intValue): return intValue
-            case .Null: return nil
-            default:
-                throw TransformationError.NotImplemented
-            }
-        case .FloatAttributeType, .DoubleAttributeType:
-            switch self {
-            case .Int(let intValue): return intValue
-            case .Double(let doubleValue): return doubleValue
-            case .Null: return nil
-            default:
-                throw TransformationError.NotImplemented
-            }
+        case .DecimalAttributeType:
+            return nil // TODO
+        case .ObjectIDAttributeType:
+            return nil // TODO
+        case .UndefinedAttributeType:
+            return nil // TODO
+        case .BinaryDataAttributeType:
+            return nil // TODO
         case .TransformableAttributeType:
             switch self {
-            case .String(let stringValue):
-                let transformer = URLTransformer()
-                return try transformer.transform(stringValue)
-            case .Null: return nil
-            default:
-                throw TransformationError.NotImplemented
+            case .String: return URLTransformer() // TODO: don't always interpret as URL?
+            default: return nil // TODO
             }
-        default:
-            throw TransformationError.NotImplemented
         }
     }
     
-    //    private var objectValue: NSObject {
-    //        switch self {
-    //        case .Bool(let boolValue): return boolValue
-    //        case .Int(let intValue): return intValue
-    //        case .Double(let doubleValue): return doubleValue
-    //        case .String(let stringValue): return stringValue
-    //        case .Null: return NSNull()
-    //        case .Array(let arrayValue): return NSArray(array: arrayValue.map({ $0.objectValue }))
-    //        case .Dictionary(let dictionaryValue): return NSDictionary(dictionary: dictionaryValue.reduce([:]) { objectDictionary, row in
-    //                var objectDictionary = objectDictionary
-    //                objectDictionary[row.0] = row.1.objectValue
-    //                return objectDictionary
-    //            })
-    //        }
-    //    }
+    private var primitiveValue: PrimitiveValue? {
+        switch self {
+        case .Bool(let boolValue): return boolValue
+        case .Int(let intValue): return intValue
+        case .Double(let doubleValue): return doubleValue
+        case .String(let stringValue): return stringValue
+        case .Null: return nil
+        case .Array(let arrayValue): return NSArray(array: arrayValue.map({ $0.primitiveValue ?? NSNull() }))
+        case .Dictionary(let dictionaryValue): return NSDictionary(dictionary: dictionaryValue.reduce([:]) { objectDictionary, row in
+                var objectDictionary = objectDictionary
+                objectDictionary[row.0] = row.1.primitiveValue ?? NSNull()
+                return objectDictionary
+            })
+        }
+    }
+    
 }
 
-public protocol Transformer {
+
+// MARK: - Transformers
+
+public typealias Transformer = NSValueTransformer
+
+
+public class IdentityTransformer: Transformer {
     
-    associatedtype FromType
-    associatedtype ToType
-    
-    func transform(value: FromType) throws -> ToType
+    public override func transformedValue(value: AnyObject?) -> AnyObject? {
+        return value
+    }
     
 }
+
 
 public class URLTransformer: Transformer {
     
-    public typealias FromType = String
-    public typealias ToType = NSURL?
-    
-    public enum URLTransformationError: ErrorType {
-        case InvalidFormat(String)
-    }
-    
-    public func transform(value: String) throws -> NSURL? {
-        guard !value.isEmpty else {
+    public override func transformedValue(value: AnyObject?) -> AnyObject? {
+        guard let urlString = value as? String else {
             return nil
         }
-        guard let url = NSURL(string: value) else {
-            throw URLTransformationError.InvalidFormat(value)
-        }
-        return url
+        return NSURL(string: urlString)
+    }
+    
+    public override class func allowsReverseTransformation() -> Bool {
+        return false
+    }
+    
+    public override class func transformedValueClass() -> AnyClass {
+        return NSURL.self
     }
     
 }
 
-public class FormattedDateTransformer: Transformer {
+
+public class FormattedNumberTransformer: Transformer {
     
-    public typealias FromType = String
-    public typealias ToType = NSDate?
+    let numberFormatter: NSNumberFormatter
+    
+    public init(numberFormatter: NSNumberFormatter) {
+        self.numberFormatter = numberFormatter
+    }
+    
+    public override func transformedValue(value: AnyObject?) -> AnyObject? {
+        guard let formattedNumber = value as? String else {
+            return nil
+        }
+        return numberFormatter.numberFromString(formattedNumber)
+    }
+    
+    public override class func allowsReverseTransformation() -> Bool {
+        return false
+    }
+    
+    public override class func transformedValueClass() -> AnyClass {
+        return NSNumber.self
+    }
+    
+}
+
+
+public class NumberFormatTransformer: Transformer { // TODO: rename
+    
+    let numberFormatter: NSNumberFormatter
+    
+    public init(numberFormatter: NSNumberFormatter) {
+        self.numberFormatter = numberFormatter
+    }
+    
+    public override func transformedValue(value: AnyObject?) -> AnyObject? {
+        guard let number = value as? NSNumber else {
+            return nil
+        }
+        return numberFormatter.stringFromNumber(number)
+    }
+   
+    public override class func allowsReverseTransformation() -> Bool {
+        return false
+    }
+    
+    public override class func transformedValueClass() -> AnyClass {
+        return NSString.self
+    }
+    
+}
+
+
+public class FormattedDateTransformer: Transformer {
     
     public let dateFormatter: NSDateFormatter
     
@@ -129,18 +203,19 @@ public class FormattedDateTransformer: Transformer {
         self.dateFormatter = dateFormatter
     }
     
-    public enum FormattedDateTransformationError: ErrorType {
-        case InvalidFormat(String)
-    }
-    
-    public func transform(value: String) throws -> NSDate? {
-        guard !value.isEmpty else {
+    public override func transformedValue(value: AnyObject?) -> AnyObject? {
+        guard let formattedDate = value as? String else {
             return nil
         }
-        guard let result = dateFormatter.dateFromString(value) else {
-            throw FormattedDateTransformationError.InvalidFormat(value)
-        }
-        return result
+        return dateFormatter.dateFromString(formattedDate)
+    }
+    
+    public override class func allowsReverseTransformation() -> Bool {
+        return false
+    }
+    
+    public override class func transformedValueClass() -> AnyClass {
+        return NSDate.self
     }
     
 }
