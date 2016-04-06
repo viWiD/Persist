@@ -111,7 +111,7 @@ private func existingObjects(ofEntity entityType: Identifyable.Type, includingSu
         }
         // TODO: validate that superentity has the same identification property necessary?
         identificationEntity = superentitySharingIdentification
-        logger.debug("\(entityType) shares identification with \(superentitySharingIdentification), using for fetch...")
+        logger.debug("\(entityType) shares identification with \(superentitySharingIdentification), using for fetch...", onceForKey: "notify_superentity_sharing_identification_\(entityType.entityName)")
     } else {
         identificationEntity = entityType
     }
@@ -171,7 +171,7 @@ private func ensureEntity(entityType: EntityRepresentable.Type, forObject object
 
 // MARK: - Orphans
 
-internal func deleteOrphans(ofEntity entityType: Persistable.Type, onlyKeeping objectsRepresentation: JSON, context: NSManagedObjectContext, scope: NSPredicate? = nil) -> Promise<Void> {
+internal func deleteOrphans(ofEntity entityType: Persistable.Type, onlyKeeping objectsRepresentation: JSON, context: NSManagedObjectContext, scope: NSPredicate?) -> Promise<Void> {
     let traceLogger = Evergreen.getLogger("Persist.Trace")
     traceLogger.verbose("Deleting orphans of \(entityType)...")
     let logger = Evergreen.getLogger("Persist.DeleteOrphans")
@@ -186,7 +186,7 @@ internal func deleteOrphans(ofEntity entityType: Persistable.Type, onlyKeeping o
                 // retrieve orphans
                 var orphanPredicate = NSPredicate(format: "NOT %K IN %@", entityType.identificationAttributeName, primitiveIdentificationValuesToKeep)
                 if let scope = scope {
-                    logger.verbose("Limiting orphan deletion to scope \(scope).")
+                    logger.debug("Limiting orphan deletion to scope \(scope).")
                     orphanPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: [ scope, orphanPredicate ])
                 }
                 let orphans: [NSManagedObject]
@@ -200,9 +200,9 @@ internal func deleteOrphans(ofEntity entityType: Persistable.Type, onlyKeeping o
                 // delete orphans
                 orphans.forEach({ context.deleteObject($0) })
                 if orphans.count == 0 {
-                    logger.verbose("No orphans to delete.")
+                    logger.debug("No orphans to delete.")
                 } else {
-                    logger.verbose("Found and deleted \(orphans.count) orphans.")
+                    logger.debug("Found and deleted \(orphans.count) orphans.")
                 }
                 
                 fulfill()

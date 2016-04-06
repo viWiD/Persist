@@ -61,7 +61,7 @@ public enum PersistError: ErrorType, CustomStringConvertible {
 }
 
 //public typealias Completion = (Result<[NSManagedObject], PersistError>) -> Void
-public typealias ChangesPromise = Promise<[NSManagedObject]>
+public typealias ChangesPromise = Promise<Void>
 
 
 // - Persist
@@ -115,19 +115,23 @@ public enum Persist { // Namespace for `changes` function family
         let changes = deleteOrphans(ofEntity: entityType.self, onlyKeeping: json, context: context, scope: scope).then {
         
             // retrieve objects
-            return filledObjects(ofEntity: entityType.self, withRepresentation: json, context: context)
+            return filledObjects(ofEntity: entityType.self, withRepresentation: json, context: context).asVoid()
             
-        }.then { objects -> ChangesPromise in
+        }.then {
             
             // save
-            return Promise { fulfill, reject in
+            return Promise<Void> { fulfill, reject in
                 context.performBlock {
                     do {
-                        try context.save()
-                        contextLogger.debug("Saved context.")
-                        fulfill(objects)
+                        if context.hasChanges {
+                            try context.save()
+                            contextLogger.debug("Saved context with changes to \(entityType).")
+                        } else {
+                            contextLogger.debug("Nothing changed for \(entityType), no need to save context.")
+                        }
+                        fulfill()
                     } catch {
-                        contextLogger.error("Failed saving context.", error: error)
+                        contextLogger.error("Failed saving context with changes to \(entityType).", error: error)
                         reject(error)
                     }
                 }
