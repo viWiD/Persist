@@ -30,6 +30,8 @@ import PromiseKit
 
 // TODO: Orphan deletion
 
+// TODO: make sure to execute everything in background
+
 
 // MARK: - EntityRepresentable
 
@@ -71,8 +73,8 @@ public typealias ChangesPromise = Promise<[NSManagedObject]>
 public enum Persist { // Namespace for `changes` function family
     
     // TODO: include this? requires Result dependency
-//    public static func changes(jsonData: NSData, to entityType: Persistable.Type, context: NSManagedObjectContext, predicate: NSPredicate? = nil, completion: Completion?) {
-//        self.changes(jsonData, to: entityType.self, context: context, predicate: predicate).then { changes -> Void in
+//    public static func changes(jsonData: NSData, to entityType: Persistable.Type, context: NSManagedObjectContext, scope: NSPredicate? = nil, completion: Completion?) {
+//        self.changes(jsonData, to: entityType.self, context: context, scope: scope).then { changes -> Void in
 //            completion?(.Success(changes))
 //        }.error { error in
 //            switch error {
@@ -84,36 +86,42 @@ public enum Persist { // Namespace for `changes` function family
 //        }
 //    }
     
-    public static func changes(jsonData: NSData, to entityType: Persistable.Type, context: NSManagedObjectContext, predicate: NSPredicate? = nil) -> ChangesPromise {
-        return Promise<JSON> { fulfill, reject in
-            let logger = Evergreen.getLogger("Persist.Parse")
-            
-            // parse json
-            let json: JSON
-            do {
-                json = try JSON(data: jsonData)
-            } catch {
-                logger.error("Failed to parse JSON from data.", error: error)
-                reject(error)
-                return
+    public static func changes(jsonData: NSData, to entityType: Persistable.Type, context: NSManagedObjectContext, scope: NSPredicate? = nil) -> ChangesPromise {
+        return Promise().thenInBackground {
+            return Promise<JSON> { fulfill, reject in
+                let logger = Evergreen.getLogger("Persist.Parse")
+                
+                // parse json
+                let json: JSON
+                do {
+                    json = try JSON(data: jsonData)
+                } catch {
+                    logger.error("Failed to parse JSON from data.", error: error)
+                    reject(error)
+                    return
+                }
+                logger.verbose("Parsed JSON: \(json)")
+                
+                fulfill(json)
             }
-            logger.verbose("Parsed JSON: \(json)")
-            
-            fulfill(json)
-            
         }.then { json in
             // pass forward
-            return self.changes(json, to: entityType.self, context: context, predicate: predicate)
+            return self.changes(json, to: entityType.self, context: context, scope: scope)
         }
     }
     
-    public static func changes(json: JSON, to entityType: Persistable.Type, context: NSManagedObjectContext, predicate: NSPredicate? = nil) -> ChangesPromise {
+    public static func changes(json: JSON, to entityType: Persistable.Type, context: NSManagedObjectContext, scope: NSPredicate? = nil) -> ChangesPromise {
         let contextLogger = Evergreen.getLogger("Persist.Context")
         let traceLogger = Evergreen.getLogger("Persist.Trace")
         traceLogger.debug("Persisting changes of entity \(entityType.self)...")
         
-        // retrieve objects
-        let changes = filledObjects(ofEntity: entityType.self, withRepresentation: json, context: context).then { objects -> ChangesPromise in
+        // delete orphans
+        let changes = deleteOrphans(ofEntity: entityType.self, onlyKeeping: json, context: context, scope: scope).then {
+        
+            // retrieve objects
+            return filledObjects(ofEntity: entityType.self, withRepresentation: json, context: context)
+            
+        }.then { objects -> ChangesPromise in
             
             // save
             return Promise { fulfill, reject in
@@ -134,7 +142,7 @@ public enum Persist { // Namespace for `changes` function family
         // enqueue
         return enqueueChanges(changes)
     }
-//    public static func changes(json: JSON, contextProvider: ContextProvider, predicate: NSPredicate? = nil) -> ChangesPromise {
+//    public static func changes(json: JSON, contextProvider: ContextProvider, scope: NSPredicate? = nil) -> ChangesPromise {
 //        let logger = Evergreen.getLogger("Persist.Trace")
 //        logger.debug("Persisting changes of entity \(EntityType.self)...")
 //        

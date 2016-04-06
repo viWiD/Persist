@@ -17,7 +17,7 @@ internal extension JSON {
         case NotImplemented
     }
     
-    func transformedTo(attributeType: NSAttributeType) throws -> NSObject? {
+    func transformedTo(attributeType: NSAttributeType) throws -> NSObject? { // TODO: return descriptive typealias instead of NSObject
         switch attributeType {
         case .DateAttributeType:
             switch self {
