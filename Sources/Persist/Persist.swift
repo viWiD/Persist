@@ -26,10 +26,6 @@ import PromiseKit
 
 // TODO: separate from Core Data using a `PersistenceProvider` protocol that NSManagedObjectContext conforms to
 
-// TODO: Transformers
-
-// TODO: Orphan deletion
-
 // TODO: make sure to execute everything in background
 
 
