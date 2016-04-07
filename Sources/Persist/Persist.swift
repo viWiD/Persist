@@ -86,6 +86,8 @@ public enum Persist { // Namespace for `changes` function family
         return Promise().thenInBackground {
             return Promise<JSON> { fulfill, reject in
                 let logger = Evergreen.getLogger("Persist.Parse")
+                let traceLogger = Evergreen.getLogger("Persist.Trace")
+                traceLogger.tic(andLog: "Parsing \(entityType) JSON data...", forLevel: .Debug, timerKey: "parse_json_\(entityType.entityName)")
                 
                 // parse json
                 let json: JSON
@@ -96,7 +98,8 @@ public enum Persist { // Namespace for `changes` function family
                     reject(error)
                     return
                 }
-                logger.verbose("Parsed JSON: \(json)")
+                traceLogger.toc(andLog: "Parsed \(entityType) JSON data.", forLevel: .Debug, timerKey: "parse_json_\(entityType.entityName)")
+                logger.verbose(json)
                 
                 fulfill(json)
             }

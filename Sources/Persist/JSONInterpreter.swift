@@ -35,8 +35,8 @@ internal extension JSON {
                     logger.error("Failed processing object representation \(objectsRepresentation).", error: error)
                     return []
                 }
-                }).then { objects in
-                    return objects.flatMap({ $0 })
+            }).then { objects in
+                return objects.flatMap({ $0 })
             }
             
         case .Dictionary(let propertyValues):

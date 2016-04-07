@@ -133,7 +133,7 @@ private func filledObject(ofEntity entityType: Fillable.Type, withPropertyValues
         
     }
     
-    return object.then { object in
+    return object.thenInBackground { object in
         
         // fill object with attribute values
         logger.verbose("Got object \(object).")
@@ -181,9 +181,9 @@ extension Fillable {
             return self.setValue(value, forProperty: propertyMapping).recover { error in
                 fillLogger.warning("Could not set \(value) for property \(propertyMapping), skipping.", error: error)
             }
-            }).then {
-                traceLogger.verbose("Filled object with attribute values, it is now: \(self)")
-                return Promise()
+        }).then {
+            traceLogger.verbose("Filled object with attribute values, it is now: \(self)")
+            return Promise()
         }
     }
     
@@ -317,43 +317,52 @@ public extension Fillable where Self: NSManagedObject {
                     }
                     let destinationPropertyValues = allFoundPropertyValues.first
                     
-                    // retrieve existing relationship destination
-                    var existingDestinationObject: NSManagedObject?
-                    context.performBlockAndWait {
-                        existingDestinationObject = object.valueForKey(relationship.name) as? NSManagedObject
-                    }
-                    
-                    if let destinationPropertyValues = destinationPropertyValues {
-                        if let fillableDestinationObject = existingDestinationObject as? Fillable where existingDestinationObject?.entity.name == destinationEntityType.entityName {
+                    // retrieve existing relationship destination object
+                    return Promise<NSManagedObject?> { fulfill, reject in
+                        context.performBlock {
                             
-                            // update existing destination object
-                            logger.verbose("Updating existing destination object \(fillableDestinationObject)...")
-                            return fillableDestinationObject.fillWith(destinationPropertyValues)
+                            let existingDestinationObject = object.valueForKey(relationship.name) as? NSManagedObject
+                            
+                            fulfill(existingDestinationObject)
+                        }
+                    }.thenInBackground { existingDestinationObject in
+                        
+                        if let destinationPropertyValues = destinationPropertyValues {
+                            if let fillableDestinationObject = existingDestinationObject as? Fillable where existingDestinationObject?.entity.name == destinationEntityType.entityName {
+                                
+                                // update existing destination object
+                                logger.verbose("Updating existing destination object \(fillableDestinationObject)...")
+                                return fillableDestinationObject.fillWith(destinationPropertyValues)
+                                
+                            } else {
+                                
+                                // create relationship destination object
+                                return filledObject(ofEntity: destinationEntityType.self, withPropertyValues: destinationPropertyValues, context: context).then { destinationObject in
+                                    return Promise { fulfill, reject in
+                                        context.performBlock {
+                                            
+                                            object.setValue(destinationObject, forKey: relationship.name)
+                                            
+                                            fulfill()
+                                        }
+                                    }
+                                }
+                                
+                            }
                             
                         } else {
-                            
-                            // create relationship destination object
-                            return filledObject(ofEntity: destinationEntityType.self, withPropertyValues: destinationPropertyValues, context: context).then { destinationObject in
-                                context.performBlockAndWait {
+                            return Promise { fulfill, reject in
+                                context.performBlock {
                                     
-                                    object.setValue(destinationObject, forKey: relationship.name)
+                                    if object.valueForKey(relationship.name) != nil {
+                                        object.setValue(nil, forKey: relationship.name)
+                                    }
                                     
+                                    fulfill()
                                 }
                             }
-                            
                         }
                         
-                    } else {
-                        return Promise { fulfill, reject in
-                            context.performBlock {
-                                
-                                if object.valueForKey(relationship.name) != nil {
-                                    object.setValue(nil, forKey: relationship.name)
-                                }
-                                fulfill()
-                                
-                            }
-                        }
                     }
                 }
                 
