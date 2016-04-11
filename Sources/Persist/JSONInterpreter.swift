@@ -8,7 +8,6 @@
 
 import Foundation
 import Freddy
-import PromiseKit
 import Evergreen
 
 
@@ -17,7 +16,7 @@ typealias PropertyValues = [String: JSON]
 
 internal extension JSON {
     
-    func map<T>(identificationValueTransform identificationValueTransform: (identificationValue: JSON) -> Promise<T>, propertyValuesTransform: (propertyValues: PropertyValues) -> Promise<T>) -> Promise<[T]> {
+    func map<T>(identificationValueTransform identificationValueTransform: (identificationValue: JSON) throws -> T, propertyValuesTransform: (propertyValues: PropertyValues) throws -> T) throws -> [T] {
         let logger = Evergreen.getLogger("Persist.JSONInterpretation")
         
         switch self {
@@ -29,14 +28,14 @@ internal extension JSON {
             logger.verbose("Found array of object representations, processing each entry: \(objectRepresentations)")
             
             // retrieve objects
-            return when(objectRepresentations.enumerate().map { (index, objectsRepresentation) -> Promise<[T]> in
+            return objectRepresentations.enumerate().flatMap { (index, objectsRepresentation) -> [T] in
                 logger.verbose("Processing entry \(index + 1) of \(objectRepresentations.count)...")
-                return objectsRepresentation.map(identificationValueTransform: identificationValueTransform, propertyValuesTransform: propertyValuesTransform).recover { error -> [T] in
+                do {
+                    return try objectsRepresentation.map(identificationValueTransform: identificationValueTransform, propertyValuesTransform: propertyValuesTransform)
+                } catch {
                     logger.error("Failed processing object representation \(objectsRepresentation).", error: error)
                     return []
                 }
-            }).then { objects in
-                return objects.flatMap({ $0 })
             }
             
         case .Dictionary(let propertyValues):
@@ -46,9 +45,7 @@ internal extension JSON {
             logger.verbose("Found object property values: \(propertyValues)")
             
             // retrieve object
-            return propertyValuesTransform(propertyValues: propertyValues).then { object in
-                return [ object ]
-            }
+            return [ try propertyValuesTransform(propertyValues: propertyValues) ]
             
         case .Bool, .Double, .Int, .String:
             
@@ -56,9 +53,7 @@ internal extension JSON {
             
             logger.verbose("Found object identification value: \(self)")
             
-            return identificationValueTransform(identificationValue: self).then { object in
-                return [ object ]
-            }
+            return [ try identificationValueTransform(identificationValue: self) ]
             
         case .Null:
             
@@ -66,7 +61,7 @@ internal extension JSON {
             
             logger.verbose("Found \(self) for object representation, ignoring.")
             
-            return Promise([])
+            return []
             
         }
         

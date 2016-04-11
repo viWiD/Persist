@@ -10,7 +10,6 @@ import Foundation
 import CoreData
 import Evergreen
 import Freddy
-import PromiseKit
 
 
 typealias PrimitiveValue = NSObject
@@ -20,7 +19,7 @@ public protocol Fillable: EntityRepresentable {
     
     static var persistableProperties: Set<PropertyMapping> { get }
     
-    func setValue(value: JSON, forProperty: PropertyMapping) -> Promise<Void> // TODO: make un-overrideable?
+    func setValue(value: JSON, forProperty: PropertyMapping) throws // TODO: make un-overrideable?
     
 }
 
@@ -67,36 +66,38 @@ public enum FillError: ErrorType, CustomStringConvertible {
 
 // MARK - Filling
 
-internal func filledObjects(ofEntity entityType: Fillable.Type, withRepresentation objectsRepresentation: JSON, context: NSManagedObjectContext) -> Promise<[NSManagedObject]> {
+/// - warning: Only call on `context`'s queue using `performBlock`.
+internal func filledObjects(ofEntity entityType: Fillable.Type, withRepresentation objectsRepresentation: JSON, context: NSManagedObjectContext) throws -> [NSManagedObject] {
     let logger = Evergreen.getLogger("Persist.Trace")
     
-    return objectsRepresentation.map(
+    return try objectsRepresentation.map(
 
         identificationValueTransform: { identificationValue in
             logger.verbose("Found \(entityType.self) identification value \(identificationValue).")
             
             guard let identifyableEntityType = entityType as? Identifyable.Type else {
-                return Promise(error: FillError.NonIdentifyableType(named: entityType.entityName))
+                throw FillError.NonIdentifyableType(named: entityType.entityName)
             }
             
             // retrieve stubbed object
-            return stub(objectOfEntity: identifyableEntityType, withIdentificationValue: identificationValue, context: context)
+            return try stub(objectOfEntity: identifyableEntityType, withIdentificationValue: identificationValue, context: context)
         },
         
         propertyValuesTransform: { propertyValues in
             logger.verbose("Found \(entityType.self) dictionary representation: \(objectsRepresentation)")
             
             // retrieve filled object
-            return filledObject(ofEntity: entityType.self, withPropertyValues: propertyValues, context: context)
+            return try filledObject(ofEntity: entityType.self, withPropertyValues: propertyValues, context: context)
         }
     )
     
 }
 
-private func filledObject(ofEntity entityType: Fillable.Type, withPropertyValues propertyValues: PropertyValues, context: NSManagedObjectContext) -> Promise<NSManagedObject> {
+/// - warning: Only call on `context`'s queue using `performBlock`.
+private func filledObject(ofEntity entityType: Fillable.Type, withPropertyValues propertyValues: PropertyValues, context: NSManagedObjectContext) throws -> NSManagedObject {
     let logger = Evergreen.getLogger("Persist.Trace")
     
-    let object: Promise<NSManagedObject>
+    let object: NSManagedObject
     
     if let persistableEntityType = entityType.self as? Persistable.Type {
         
@@ -104,46 +105,35 @@ private func filledObject(ofEntity entityType: Fillable.Type, withPropertyValues
         
         // retrieve identification value
         guard let identificationProperty = persistableEntityType.identificationProperty else {
-            return Promise(error: FillError.IdentificationPropertyNotFound(ofEntityNamed: persistableEntityType.entityName))
+            throw FillError.IdentificationPropertyNotFound(ofEntityNamed: persistableEntityType.entityName)
         }
         guard let identificationValue = propertyValues[identificationProperty.key] else {
-            return Promise(error: FillError.IdentificationValueNotFound(key: identificationProperty.key))
+            throw FillError.IdentificationValueNotFound(key: identificationProperty.key)
         }
         
         logger.verbose("\(persistableEntityType.entityName) is identified by its property \(identificationProperty). Found value \(identificationValue), retrieving object...")
         
         // retrieve object
-        object = stub(objectOfEntity: persistableEntityType, withIdentificationValue: identificationValue, context: context)
+        object = try stub(objectOfEntity: persistableEntityType, withIdentificationValue: identificationValue, context: context)
         
     } else {
         
         // entity is not identifyable, just create object
-        
         logger.verbose("\(entityType.entityName) is not identifyable, creating object...")
         
-        object = Promise { fulfill, reject in
-            context.performBlock {
-                
-                // create object
-                let object = NSEntityDescription.insertNewObjectForEntityForName(entityType.entityName, inManagedObjectContext: context)
-                
-                fulfill(object)
-            }
-        }
-        
+        // create object
+        object = NSEntityDescription.insertNewObjectForEntityForName(entityType.entityName, inManagedObjectContext: context)
+    
     }
     
-    return object.thenInBackground { object in
-        
-        // fill object with attribute values
-        logger.verbose("Got object \(object).")
-        guard let fillableObject = object as? Fillable else {
-            return Promise(error: FillError.NonFillableType(named: entityType.entityName))
-        }
-        return fillableObject.fillWith(propertyValues).then {
-            return Promise(object)
-        }
+    // fill object with attribute values
+    logger.verbose("Got object \(object).")
+    guard let fillableObject = object as? Fillable else {
+        throw FillError.NonFillableType(named: entityType.entityName)
     }
+    try fillableObject.fillWith(propertyValues)
+    
+    return object
 }
 
 
@@ -166,32 +156,34 @@ extension Fillable {
         }
     }
     
-    private func fillWith(values: PropertyValues) -> Promise<Void> {
+    private func fillWith(values: PropertyValues) throws -> Void {
         let fillLogger = Evergreen.getLogger("Persist.Fill")
         let traceLogger = Evergreen.getLogger("Persist.Trace")
         
         traceLogger.verbose("Filling object \(self) with property values \(values)...")
         
-        return when(values.map { key, value in
+        values.forEach { key, value in
             guard let propertyMapping = Self.persistablePropertiesByKey[key] else {
                 fillLogger.debug("No property mapping for key \(key) available, skipping.")
-                return Promise()
+                return
             }
             
-            return self.setValue(value, forProperty: propertyMapping).recover { error in
+            do {
+                try self.setValue(value, forProperty: propertyMapping)
+            } catch {
                 fillLogger.warning("Could not set \(value) for property \(propertyMapping), skipping.", error: error)
             }
-        }).then {
-            traceLogger.verbose("Filled object with attribute values, it is now: \(self)")
-            return Promise()
         }
+        
+        traceLogger.verbose("Filled object with attribute values, it is now: \(self)")
     }
     
 }
 
 public extension Fillable where Self: NSManagedObject {
     
-    func setValue(value: JSON, forProperty property: PropertyMapping) -> Promise<Void> {
+    /// - warning: Only call on `context`'s queue using `performBlock`.
+    func setValue(value: JSON, forProperty property: PropertyMapping) throws {
         let logger = Evergreen.getLogger("Persist.Fill.SetValue")
         let traceLogger = Evergreen.getLogger("Persist.Trace")
         traceLogger.verbose("Setting value \(value) for property \(property) of \(self)...")
@@ -202,102 +194,88 @@ public extension Fillable where Self: NSManagedObject {
         
         if let attribute = entity.attributesByName[property.name] {
             
-            return Promise { fulfill, reject in
-                // transform to attribute type
-                let newValue: NSObject?
-                do {
-                    // TODO: use custom transformers
-                    newValue = try value.transformedTo(attribute.attributeType)
-                    logger.debug("Transformed value \(value) to \(newValue ?? "nil").")
-                } catch {
-                    logger.error("Could not transform value \(value).", error: error)
-                    reject(error)
-                    return
-                }
-                
-                guard let context = self.managedObjectContext else {
-                    reject(FillError.ContextUnavailable)
-                    return
-                }
-                
-                context.performBlock {
-                    // assign to attribute
-                    if object.valueForKey(attribute.name) as? NSObject != newValue {
-                        object.setValue(newValue, forKey: attribute.name)
-                        logger.verbose("Attribute \(attribute.name) set to \(newValue).")
-                    } else {
-                        logger.verbose("Attribute \(attribute.name) is already set to \(newValue).")
-                    }
-                    fulfill()
-                }
+            // transform to attribute type
+            let newValue: NSObject?
+            do {
+                // TODO: use custom transformers
+                newValue = try value.transformedTo(attribute.attributeType, transformer: property.transformer)
+                logger.debug("Transformed value \(value) to \(newValue ?? "nil").")
+            } catch {
+                logger.error("Could not transform value \(value).", error: error)
+                throw error
+            }
+            
+            guard let context = self.managedObjectContext else {
+                throw FillError.ContextUnavailable
+            }
+            
+            // assign to attribute
+            if object.valueForKey(attribute.name) as? NSObject != newValue {
+                object.setValue(newValue, forKey: attribute.name)
+                logger.verbose("Attribute \(attribute.name) set to \(newValue).")
+            } else {
+                logger.verbose("Attribute \(attribute.name) is already set to \(newValue).")
             }
             
         } else if let relationship = entity.relationshipsByName[property.name] {
             
             guard let destinationEntity = relationship.destinationEntity else {
-                return Promise(error: FillError.MissingDestinationEntity(ofRelationshipNamed: relationship.name))
+                throw FillError.MissingDestinationEntity(ofRelationshipNamed: relationship.name)
             }
             guard let destinationEntityName = relationship.destinationEntity?.name else {
-                return Promise(error: FillError.MissingDestinationEntityName(ofRelationshipNamed: relationship.name))
+                throw FillError.MissingDestinationEntityName(ofRelationshipNamed: relationship.name)
             }
             guard let destinationEntityClassName = destinationEntity.managedObjectClassName else {
-                return Promise(error: FillError.MissingEntityClassName(ofEntityNamed: destinationEntityName))
+                throw FillError.MissingEntityClassName(ofEntityNamed: destinationEntityName)
             }
             guard let destinationEntityType = NSClassFromString(destinationEntityClassName) as? Fillable.Type else {
-                return Promise(error: FillError.NonFillableType(named: destinationEntity.managedObjectClassName))
+                throw FillError.NonFillableType(named: destinationEntity.managedObjectClassName)
             }
             
             guard let context = self.managedObjectContext else {
-                return Promise(error: FillError.ContextUnavailable)
+                throw FillError.ContextUnavailable
             }
             
             if destinationEntityType.self is Identifyable.Type || relationship.toMany {
             
                 // retrieve destination objects
-                return filledObjects(ofEntity: destinationEntityType.self, withRepresentation: value, context: context).then { destinationObjects in
-                    Promise { fulfill, reject in
-                        context.performBlock {
-                            
-                            // assign to relationship
-                            // TODO: remove as! NSObject force casts
-                            // TODO: non-identifyable relationship destinations such as Addresses are created and set here without checking for equality
-                            if relationship.toMany {
-                                if relationship.ordered {
-                                    let newRelationshipValue = NSOrderedSet(array: destinationObjects)
-                                    let mutableRelationshipValue = self.mutableOrderedSetValueForKey(relationship.name)
-                                    if mutableRelationshipValue != newRelationshipValue {
-                                        mutableRelationshipValue.removeAllObjects()
-                                        mutableRelationshipValue.addObjectsFromArray(destinationObjects)
-                                        logger.verbose("Ordered to-many relationship \(relationship.name) set to \(newRelationshipValue).")
-                                    } else {
-                                        logger.verbose("Ordered to-many relationship \(relationship.name) is already set to \(newRelationshipValue).")
-                                    }
-                                } else {
-                                    let newRelationshipValue = NSSet(array: destinationObjects)
-                                    let mutableRelationshipValue = self.mutableSetValueForKey(relationship.name)
-                                    if mutableRelationshipValue != newRelationshipValue {
-                                        mutableRelationshipValue.setSet(Set(destinationObjects))
-                                        logger.verbose("To-many relationship \(relationship.name) set to \(newRelationshipValue).")
-                                    } else {
-                                        logger.verbose("To-many relationship \(relationship.name) is already set to \(newRelationshipValue).")
-                                    }
-                                }
-                            } else {
-                                guard destinationObjects.count <= 1 else {
-                                    reject(FillError.TooManyValues(forRelationshipNamed: relationship.name))
-                                    return
-                                }
-                                let destinationObject = destinationObjects.first
-                                if object.valueForKey(relationship.name) as? NSObject != destinationObject {
-                                    object.setValue(destinationObject, forKey: relationship.name)
-                                    logger.verbose("To-one relationship \(relationship.name) set to \(destinationObject).")
-                                } else {
-                                    logger.verbose("To-one relationship \(relationship.name) is already set to \(destinationObject).")
-                                }
-                            }
-                            
-                            fulfill()
+                let destinationObjects = try filledObjects(ofEntity: destinationEntityType.self, withRepresentation: value, context: context)
+                
+                // assign to relationship
+                // TODO: remove as! NSObject force casts
+                // TODO: non-identifyable relationship destinations such as Addresses are created and set here without checking for equality
+                if relationship.toMany {
+                    if relationship.ordered {
+                        let newRelationshipValue = NSOrderedSet(array: destinationObjects)
+                        let mutableRelationshipValue = self.mutableOrderedSetValueForKey(relationship.name)
+                        if mutableRelationshipValue != newRelationshipValue {
+                            mutableRelationshipValue.removeAllObjects()
+                            mutableRelationshipValue.addObjectsFromArray(destinationObjects)
+                            logger.verbose("Ordered to-many relationship \(relationship.name) set to \(newRelationshipValue).")
+                        } else {
+                            logger.verbose("Ordered to-many relationship \(relationship.name) is already set to \(newRelationshipValue).")
                         }
+                    } else {
+                        let newRelationshipValue = NSSet(array: destinationObjects)
+                        let mutableRelationshipValue = self.mutableSetValueForKey(relationship.name)
+                        if mutableRelationshipValue != newRelationshipValue {
+                            mutableRelationshipValue.setSet(Set(destinationObjects))
+                            logger.verbose("To-many relationship \(relationship.name) set to \(newRelationshipValue).")
+                        } else {
+                            logger.verbose("To-many relationship \(relationship.name) is already set to \(newRelationshipValue).")
+                        }
+                    }
+                } else {
+                    guard destinationObjects.count <= 1 else {
+                        throw FillError.TooManyValues(forRelationshipNamed: relationship.name)
+                        return
+                    }
+                    let destinationObject = destinationObjects.first
+                    if object.valueForKey(relationship.name) as? NSObject != destinationObject {
+                        object.setValue(destinationObject, forKey: relationship.name)
+                        logger.verbose("To-one relationship \(relationship.name) set to \(destinationObject).")
+                    } else {
+                        logger.verbose("To-one relationship \(relationship.name) is already set to \(destinationObject).")
                     }
                 }
                 
@@ -306,70 +284,47 @@ public extension Fillable where Self: NSManagedObject {
                 // destination is not Identifyable but to-one, try to just update relationship instead of re-creating
                 
                 // extract property values
-                return value.map(identificationValueTransform: { identificationValue in
-                    return Promise(error: FillError.NonIdentifyableType(named: destinationEntityType.entityName))
-                }, propertyValuesTransform: { propertyValues -> Promise<PropertyValues> in
-                    return Promise(propertyValues)
-                }).then { allFoundPropertyValues in
+                let allFoundPropertyValues: [PropertyValues] = try value.map(identificationValueTransform: { identificationValue in
+                    throw FillError.NonIdentifyableType(named: destinationEntityType.entityName)
+                }, propertyValuesTransform: { propertyValues in
+                    return propertyValues
+                })
+                
                     
-                    guard allFoundPropertyValues.count <= 1 else {
-                        return Promise(error: FillError.TooManyValues(forRelationshipNamed: relationship.name))
+                guard allFoundPropertyValues.count <= 1 else {
+                    throw FillError.TooManyValues(forRelationshipNamed: relationship.name)
+                }
+                let destinationPropertyValues = allFoundPropertyValues.first
+                
+                // retrieve existing relationship destination object
+                let existingDestinationObject = object.valueForKey(relationship.name) as? NSManagedObject
+                
+                if let destinationPropertyValues = destinationPropertyValues {
+                    if let fillableDestinationObject = existingDestinationObject as? Fillable where existingDestinationObject?.entity.name == destinationEntityType.entityName {
+                        
+                        // update existing destination object
+                        logger.verbose("Updating existing destination object \(fillableDestinationObject)...")
+                        try fillableDestinationObject.fillWith(destinationPropertyValues)
+                        
+                    } else {
+                        
+                        // create relationship destination object
+                        let destinationObject = try filledObject(ofEntity: destinationEntityType.self, withPropertyValues: destinationPropertyValues, context: context)
+                        object.setValue(destinationObject, forKey: relationship.name)
+                        
                     }
-                    let destinationPropertyValues = allFoundPropertyValues.first
                     
-                    // retrieve existing relationship destination object
-                    return Promise<NSManagedObject?> { fulfill, reject in
-                        context.performBlock {
-                            
-                            let existingDestinationObject = object.valueForKey(relationship.name) as? NSManagedObject
-                            
-                            fulfill(existingDestinationObject)
-                        }
-                    }.thenInBackground { existingDestinationObject in
-                        
-                        if let destinationPropertyValues = destinationPropertyValues {
-                            if let fillableDestinationObject = existingDestinationObject as? Fillable where existingDestinationObject?.entity.name == destinationEntityType.entityName {
-                                
-                                // update existing destination object
-                                logger.verbose("Updating existing destination object \(fillableDestinationObject)...")
-                                return fillableDestinationObject.fillWith(destinationPropertyValues)
-                                
-                            } else {
-                                
-                                // create relationship destination object
-                                return filledObject(ofEntity: destinationEntityType.self, withPropertyValues: destinationPropertyValues, context: context).then { destinationObject in
-                                    return Promise { fulfill, reject in
-                                        context.performBlock {
-                                            
-                                            object.setValue(destinationObject, forKey: relationship.name)
-                                            
-                                            fulfill()
-                                        }
-                                    }
-                                }
-                                
-                            }
-                            
-                        } else {
-                            return Promise { fulfill, reject in
-                                context.performBlock {
-                                    
-                                    if object.valueForKey(relationship.name) != nil {
-                                        object.setValue(nil, forKey: relationship.name)
-                                    }
-                                    
-                                    fulfill()
-                                }
-                            }
-                        }
-                        
+                } else {
+
+                    if object.valueForKey(relationship.name) != nil {
+                        object.setValue(nil, forKey: relationship.name)
                     }
                 }
                 
             }
             
         } else {
-            return Promise(error: FillError.PropertyNotFound(named: property.name))
+            throw FillError.PropertyNotFound(named: property.name)
         }
         
     }

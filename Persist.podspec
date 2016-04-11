@@ -34,5 +34,5 @@ Pod::Spec.new do |s|
   # s.frameworks = 'UIKit', 'MapKit'
   s.dependency 'Evergreen'
   s.dependency 'Freddy'
-  s.dependency 'PromiseKit'
+  s.dependency 'Result'
 end

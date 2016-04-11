@@ -10,7 +10,7 @@ import Foundation
 import CoreData
 import Evergreen
 import Freddy
-import PromiseKit
+import Result
 
 
 // TODO: move background execution here using a `ContextProvider` protocol with `newBackgroundContext()` and `mainContext`?
@@ -52,98 +52,104 @@ extension Persistable {
 
 
 public enum PersistError: ErrorType, CustomStringConvertible {
-    case Underlying(ErrorType)
+    case InvalidJSONData(underlying: ErrorType), OrphanDeletionFailed(underlying: ErrorType), FillingObjectsFailed(underlying: ErrorType), SaveContextFailed(underlying: ErrorType)
     public var description: String {
         switch self {
-        case .Underlying(let error): return String(error)
+        case .InvalidJSONData(underlying: let underlyingError): return "Invalid JSON data: \(underlyingError)"
+        case .OrphanDeletionFailed(underlying: let underlyingError): return "Orphan deletion failed: \(underlyingError)"
+        case .FillingObjectsFailed(underlying: let underlyingError): return "Filling objects failed: \(underlyingError)"
+        case .SaveContextFailed(underlying: let underlyingError): return "Save context failed: \(underlyingError)"
         }
     }
 }
 
-//public typealias Completion = (Result<[NSManagedObject], PersistError>) -> Void
-public typealias ChangesPromise = Promise<Void>
+public typealias Completion = (Result<[NSManagedObject], PersistError>) -> Void
 
 
 // - Persist
 
 public enum Persist { // Namespace for `changes` function family
     
-    // TODO: include this? requires Result dependency
-//    public static func changes(jsonData: NSData, to entityType: Persistable.Type, context: NSManagedObjectContext, scope: NSPredicate? = nil, completion: Completion?) {
-//        self.changes(jsonData, to: entityType.self, context: context, scope: scope).then { changes -> Void in
-//            completion?(.Success(changes))
-//        }.error { error in
-//            switch error {
-//            case let error as PersistError:
-//                completion?(.Failure(error))
-//            default:
-//                completion?(.Failure(.Underlying(error))) // TODO: simplify
-//            }
-//        }
-//    }
-    
-    public static func changes(jsonData: NSData, to entityType: Persistable.Type, context: NSManagedObjectContext, scope: NSPredicate? = nil) -> ChangesPromise {
-        return Promise().thenInBackground {
-            return Promise<JSON> { fulfill, reject in
-                let logger = Evergreen.getLogger("Persist.Parse")
-                let traceLogger = Evergreen.getLogger("Persist.Trace")
-                traceLogger.tic(andLog: "Parsing \(entityType) JSON data...", forLevel: .Debug, timerKey: "parse_json_\(entityType.entityName)")
-                
-                // parse json
-                let json: JSON
-                do {
-                    json = try JSON(data: jsonData)
-                } catch {
-                    logger.error("Failed to parse JSON from data.", error: error)
-                    reject(error)
-                    return
+    public static func changes(jsonData: NSData, to entityType: Persistable.Type, context: NSManagedObjectContext, scope: NSPredicate? = nil, completion: Completion?) {
+        // dispatch on background
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0)) {
+
+            let logger = Evergreen.getLogger("Persist.Parse")
+            let traceLogger = Evergreen.getLogger("Persist.Trace")
+            traceLogger.tic(andLog: "Parsing \(entityType) JSON data...", forLevel: .Debug, timerKey: "parse_json_\(entityType.entityName)")
+            
+            // parse json
+            let json: JSON
+            do {
+                json = try JSON(data: jsonData)
+            } catch {
+                logger.error("Failed to parse JSON from data.", error: error)
+                dispatch_sync(dispatch_get_main_queue()) {
+                    completion?(.Failure(.InvalidJSONData(underlying: error)))
                 }
-                traceLogger.toc(andLog: "Parsed \(entityType) JSON data.", forLevel: .Debug, timerKey: "parse_json_\(entityType.entityName)")
-                logger.verbose(json)
-                
-                fulfill(json)
+                return
             }
-        }.then { json in
+            traceLogger.toc(andLog: "Parsed \(entityType) JSON data.", forLevel: .Debug, timerKey: "parse_json_\(entityType.entityName)")
+            logger.verbose(json)
+            
             // pass forward
-            return self.changes(json, to: entityType.self, context: context, scope: scope)
+            self.changes(json, to: entityType.self, context: context, scope: scope, completion: completion)
         }
     }
     
-    public static func changes(json: JSON, to entityType: Persistable.Type, context: NSManagedObjectContext, scope: NSPredicate? = nil) -> ChangesPromise {
-        let contextLogger = Evergreen.getLogger("Persist.Context")
-        let traceLogger = Evergreen.getLogger("Persist.Trace")
-        traceLogger.debug("Persisting changes of entity \(entityType.self)...")
+    public static func changes(json: JSON, to entityType: Persistable.Type, context: NSManagedObjectContext, scope: NSPredicate? = nil, completion: Completion?) {
+        // dispatch on context's queue
+        context.performBlock {
+            let contextLogger = Evergreen.getLogger("Persist.Context")
+            let traceLogger = Evergreen.getLogger("Persist.Trace")
+            traceLogger.debug("Persisting changes of entity \(entityType.self)...")
+
+            // delete orphans
+            do {
+                
+                try deleteOrphans(ofEntity: entityType.self, onlyKeeping: json, context: context, scope: scope)
         
-        // delete orphans
-        let changes = deleteOrphans(ofEntity: entityType.self, onlyKeeping: json, context: context, scope: scope).then {
-        
-            // retrieve objects
-            return filledObjects(ofEntity: entityType.self, withRepresentation: json, context: context).asVoid()
-            
-        }.then {
-            
-            // save
-            return Promise<Void> { fulfill, reject in
-                context.performBlock {
-                    do {
-                        if context.hasChanges {
-                            try context.save()
-                            contextLogger.debug("Saved context with changes to \(entityType).")
-                        } else {
-                            contextLogger.debug("Nothing changed for \(entityType), no need to save context.")
-                        }
-                        fulfill()
-                    } catch {
-                        contextLogger.error("Failed saving context with changes to \(entityType).", error: error)
-                        reject(error)
-                    }
+            } catch {
+                dispatch_sync(dispatch_get_main_queue()) {
+                    completion?(.Failure(.OrphanDeletionFailed(underlying: error)))
                 }
+                return
             }
             
+            // retrieve filled objects
+            let objects: [NSManagedObject]
+            do {
+
+                objects = try filledObjects(ofEntity: entityType.self, withRepresentation: json, context: context)
+
+            } catch {
+                dispatch_sync(dispatch_get_main_queue()) {
+                    completion?(.Failure(.FillingObjectsFailed(underlying: error)))
+                }
+                return
+            }
+            
+            // save
+            do {
+                
+                if context.hasChanges {
+                    try context.save()
+                    contextLogger.debug("Saved context with changes to \(entityType).")
+                } else {
+                    contextLogger.debug("Nothing changed for \(entityType), no need to save context.")
+                }
+                
+            } catch {
+                contextLogger.error("Failed saving context with changes to \(entityType).", error: error)
+                dispatch_sync(dispatch_get_main_queue()) {
+                    completion?(.Failure(.SaveContextFailed(underlying: error)))
+                }
+                return
+            }
+            
+            completion?(.Success(objects))
         }
         
-        // enqueue
-        return enqueueChanges(changes)
     }
 //    public static func changes(json: JSON, contextProvider: ContextProvider, scope: NSPredicate? = nil) -> ChangesPromise {
 //        let logger = Evergreen.getLogger("Persist.Trace")
@@ -176,28 +182,4 @@ public enum Persist { // Namespace for `changes` function family
 //        
 //    }
     
-}
-
-
-// MARK: - Queue
-
-var pending: ChangesPromise?
-
-private func enqueueChanges(changes: ChangesPromise) -> ChangesPromise {
-    let logger = Evergreen.getLogger("Persist.Queue")
-    guard let pendingChanges = pending where pendingChanges.pending else {
-        logger.debug("No changes in queue, executing now.")
-        pending = changes
-        return changes
-    }
-    logger.debug("Enqueueing changes...")
-    let changes = pendingChanges.then { _ -> ChangesPromise in
-        logger.debug("Queue advanced, executing next changes.")
-        return changes
-    }.recover { _ -> ChangesPromise in
-        logger.debug("Queue advanced, executing next changes.")
-        return changes
-    }
-    pending = changes
-    return changes
 }
