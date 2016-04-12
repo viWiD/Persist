@@ -1,0 +1,16 @@
+PODS:
+  - Evergreen (0.9)
+  - Freddy (2.0.2)
+  - Result (2.0.0)
+
+DEPENDENCIES:
+  - Evergreen
+  - Freddy
+  - Result
+
+SPEC CHECKSUMS:
+  Evergreen: 0f2383665ebee86064570a874f631b7861a12794
+  Freddy: e53713b8d5be02dbf5f4132c44d899d99eb09a6b
+  Result: 9e75e1111c774c6ac594e14907b15057053a7959
+
+COCOAPODS: 0.39.0

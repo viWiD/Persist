@@ -55,7 +55,7 @@ extension JSON {
             }
         case .DateAttributeType:
             switch self {
-            case .String(let stringValue): return ISO8601DateTransform() // TODO: fallback to others
+            case .String: return ISO8601DateTransformer() // TODO: fallback to others
             default: return nil
             }
         case .BooleanAttributeType:
@@ -220,7 +220,7 @@ public class FormattedDateTransformer: Transformer {
     
 }
 
-public class ISO8601DateTransform: FormattedDateTransformer {
+public class ISO8601DateTransformer: FormattedDateTransformer {
     
     public init() {
         let dateFormatter = NSDateFormatter()

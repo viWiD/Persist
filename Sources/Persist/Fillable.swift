@@ -205,10 +205,6 @@ public extension Fillable where Self: NSManagedObject {
                 throw error
             }
             
-            guard let context = self.managedObjectContext else {
-                throw FillError.ContextUnavailable
-            }
-            
             // assign to attribute
             if object.valueForKey(attribute.name) as? NSObject != newValue {
                 object.setValue(newValue, forKey: attribute.name)
@@ -268,7 +264,6 @@ public extension Fillable where Self: NSManagedObject {
                 } else {
                     guard destinationObjects.count <= 1 else {
                         throw FillError.TooManyValues(forRelationshipNamed: relationship.name)
-                        return
                     }
                     let destinationObject = destinationObjects.first
                     if object.valueForKey(relationship.name) as? NSObject != destinationObject {
