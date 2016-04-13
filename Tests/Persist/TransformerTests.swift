@@ -7,19 +7,31 @@
 //
 
 import XCTest
+import Freddy
+import CoreData
 @testable import Persist
+
+class CustomTransformer: Transformer {
+    public override func transformedValue(value: AnyObject?) -> AnyObject? {
+        return "custom"
+    }
+}
 
 class TransformerTests: XCTestCase {
     
-    override func setUp() {
-        super.setUp()
-        // Put setup code here. This method is called before the invocation of each test method in the class.
+
+    func testTransformationFromString() {
+        XCTAssertEqual(try JSON.String("value").transformedTo(.StringAttributeType) as? String, "value")
+        XCTAssertEqual(try JSON.String("2013-10-22T15:15:00Z").transformedTo(.DateAttributeType) as? NSDate, NSDate(timeIntervalSince1970: 1382454900))
+        XCTAssertEqual(try JSON.String("http://www.viwid.com/").transformedTo(.TransformableAttributeType) as? NSURL, NSURL(string: "http://www.viwid.com/")!)
     }
     
-    override func tearDown() {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-        super.tearDown()
+    func testCustomTransformerIsUsed() {
+        XCTAssertEqual(try JSON.String("value").transformedTo(.StringAttributeType, transformer: CustomTransformer()) as? String, "custom")
     }
+    
+    
+    // MARK: - Transformers
     
     func testIdentityTransformer() {
         let identityTransformer = IdentityTransformer()

@@ -16,6 +16,7 @@
 		874DB6ED1CBDAF320016DC3C /* PropertyMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874DB6E61CBDAF320016DC3C /* PropertyMapping.swift */; };
 		874DB6EE1CBDAF320016DC3C /* Transformer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874DB6E71CBDAF320016DC3C /* Transformer.swift */; };
 		874DB6F01CBDB5E90016DC3C /* TransformerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874DB6EF1CBDB5E90016DC3C /* TransformerTests.swift */; };
+		874DB6F31CBDC21B0016DC3C /* JSONInterpreterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874DB6F21CBDC21B0016DC3C /* JSONInterpreterTests.swift */; };
 		D0F48542350881CB2BFC1682 /* Pods.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C7612FE0DC4D23A0F0235730 /* Pods.framework */; };
 /* End PBXBuildFile section */
 
@@ -41,6 +42,7 @@
 		874DB6E61CBDAF320016DC3C /* PropertyMapping.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = PropertyMapping.swift; path = Sources/Persist/PropertyMapping.swift; sourceTree = SOURCE_ROOT; };
 		874DB6E71CBDAF320016DC3C /* Transformer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = Transformer.swift; path = Sources/Persist/Transformer.swift; sourceTree = SOURCE_ROOT; };
 		874DB6EF1CBDB5E90016DC3C /* TransformerTests.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = TransformerTests.swift; path = Tests/Persist/TransformerTests.swift; sourceTree = SOURCE_ROOT; };
+		874DB6F21CBDC21B0016DC3C /* JSONInterpreterTests.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = JSONInterpreterTests.swift; path = Tests/Persist/JSONInterpreterTests.swift; sourceTree = SOURCE_ROOT; };
 		9668D382DC8A37CAE7320E56 /* Pods.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Pods.debug.xcconfig; path = "Pods/Target Support Files/Pods/Pods.debug.xcconfig"; sourceTree = "<group>"; };
 		C7612FE0DC4D23A0F0235730 /* Pods.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -103,6 +105,7 @@
 		874DB6F11CBDB5ED0016DC3C /* Persist Tests */ = {
 			isa = PBXGroup;
 			children = (
+				874DB6F21CBDC21B0016DC3C /* JSONInterpreterTests.swift */,
 				874DB6EF1CBDB5E90016DC3C /* TransformerTests.swift */,
 			);
 			name = "Persist Tests";
@@ -282,6 +285,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				874DB6F31CBDC21B0016DC3C /* JSONInterpreterTests.swift in Sources */,
 				874DB6F01CBDB5E90016DC3C /* TransformerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
